@@ -1,0 +1,4 @@
+# The readable card list. Only the locked copy (vault.js) belongs in the repo.
+cards.json
+node_modules/
+.DS_Store
