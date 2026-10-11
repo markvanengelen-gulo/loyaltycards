@@ -33,7 +33,7 @@ You need Node 18 or newer. Nothing to install.
    }
    ```
 
-   - `format` is the barcode type: `CODE128`, `EAN13`, `UPC`, `ITF`, `CODE39` or `QR`. A free scanner app will tell you which type a card uses.
+   - `format` is the barcode type: `CODE128`, `EAN13`, `UPC`, `ITF`, `CODE39` or `QR`. A free scanner app will tell you which type a card uses. Use `NONE` for a card that only has a number to read out; set `value` to that number without spaces.
    - `value` is exactly what the barcode holds. `EAN13` needs all 13 digits and `UPC` all 12, including the last check digit, which is often not printed on the card.
    - `number` is what to show under the barcode, spaced however reads best. Leave it empty to show nothing.
    - `bg` and `fg` are the tile's colour and text colour.

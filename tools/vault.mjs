@@ -18,7 +18,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const VAULT = path.join(root, 'vault.js');
 const CARDS = path.join(root, 'cards.json');
 const ITERATIONS = 600_000;
-const FORMATS = ['CODE128', 'EAN13', 'UPC', 'ITF', 'CODE39', 'QR'];
+const FORMATS = ['CODE128', 'EAN13', 'UPC', 'ITF', 'CODE39', 'QR', 'NONE'];
 
 const b64 = (bytes) => Buffer.from(bytes).toString('base64');
 const unb64 = (text) => new Uint8Array(Buffer.from(text, 'base64'));
@@ -53,6 +53,7 @@ function check(cards) {
     if (!FORMATS.includes(card.format)) {
       throw new Error(`${where} has format "${card.format}". Use one of: ${FORMATS.join(', ')}.`);
     }
+    if (card.format === 'NONE' && !card.number) throw new Error(`${where} has no barcode, so it needs a number to show.`);
   });
 }
 

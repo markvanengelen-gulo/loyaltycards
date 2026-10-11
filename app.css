@@ -284,6 +284,11 @@ button {
   -webkit-user-select: all;
 }
 
+.pass.is-number-only .pass-number {
+  margin-top: 14px;
+  font-size: clamp(1.75rem, 9.5vw, 2.5rem);
+}
+
 .copy {
   margin-top: 12px;
   min-height: 44px;

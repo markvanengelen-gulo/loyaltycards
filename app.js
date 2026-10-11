@@ -156,6 +156,7 @@
     const pass = $('pass');
     pass.style.setProperty('--bg', current.bg || '#2d2870');
     pass.style.setProperty('--fg', current.fg || '#ffffff');
+    pass.classList.toggle('is-number-only', current.format === 'NONE');
     $('pass-name').textContent = current.name;
     $('pass-number').textContent = current.number || '';
     $('pass-number').hidden = !current.number;
@@ -211,7 +212,8 @@
   function drawCode() {
     const holder = $('code');
     holder.replaceChildren();
-    if (!current) return;
+    holder.hidden = Boolean(current) && current.format === 'NONE'; // a card with only a number
+    if (!current || holder.hidden) return;
     const room = holder.clientWidth;
     const ratio = window.devicePixelRatio || 1;
     const canvas = document.createElement('canvas');
