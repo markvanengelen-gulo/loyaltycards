@@ -1,11 +1,12 @@
 (() => {
   'use strict';
 
-  const vault = window.VAULT;
+  let vault = window.VAULT; // the encrypted card list; replaced when a newer one is published
   const $ = (id) => document.getElementById(id);
 
   const views = { lock: $('lock'), wallet: $('wallet'), card: $('card') };
-  const PIN_LENGTH = (vault && vault.pinLength) || 4;
+  const pinLength = () => (vault && vault.pinLength) || 4;
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const AUTO_LOCK_MS = 5 * 60 * 1000; // lock again after this long in the background
   const QUIET_ZONE = 10;              // blank modules either side of a barcode
   const RECENT_KEY = 'loyaltycards.recent'; // when each card was last opened, on this device
@@ -13,6 +14,8 @@
   let cards = null;   // decrypted list, held in memory only
   let current = null; // card being shown
   let pin = '';
+  let heldPin = '';   // kept only while unlocked, so a newer list can be opened without asking again
+  let refreshing = Promise.resolve(); // the check for a newer list that is under way
   let busy = false;
   let hiddenAt = 0;
   let wakeLock = null;
@@ -22,14 +25,14 @@
 
   const bytes = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
 
-  async function unlock(candidate) {
+  async function unlock(candidate, v = vault) {
     const material = await crypto.subtle.importKey(
       'raw', new TextEncoder().encode(candidate), 'PBKDF2', false, ['deriveKey']);
     const key = await crypto.subtle.deriveKey(
-      { name: 'PBKDF2', hash: 'SHA-256', salt: bytes(vault.salt), iterations: vault.iter },
+      { name: 'PBKDF2', hash: 'SHA-256', salt: bytes(v.salt), iterations: v.iter },
       material, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
     const plain = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: bytes(vault.iv) }, key, bytes(vault.ct));
+      { name: 'AES-GCM', iv: bytes(v.iv) }, key, bytes(v.ct));
     return JSON.parse(new TextDecoder().decode(plain));
   }
 
@@ -39,7 +42,13 @@
   }
 
   function paintDots() {
-    [...$('dots').children].forEach((dot, i) => dot.classList.toggle('is-filled', i < pin.length));
+    const dots = $('dots');
+    if (dots.children.length !== pinLength()) { // first run, or the PIN's length changed
+      pin = '';
+      dots.replaceChildren();
+      for (let i = 0; i < pinLength(); i++) dots.append(document.createElement('span'));
+    }
+    [...dots.children].forEach((dot, i) => dot.classList.toggle('is-filled', i < pin.length));
   }
 
   async function submit() {
@@ -47,13 +56,17 @@
     views.lock.classList.add('is-busy');
     hint('Unlocking…');
     try {
-      cards = await unlock(pin);
+      await Promise.race([refreshing, wait(1500)]); // let a check for newer cards finish first
+      const used = vault;
+      cards = await unlock(pin, used);
+      heldPin = pin;
       await tagCards(cards);
       loadRecent();
       sortCards();
       buildGrid();
       hint('Enter your PIN');
       show('wallet');
+      if (vault !== used) showNewerCards(); // a newer list arrived while this one was opening
     } catch (error) {
       hint('That PIN didn’t work. Try again.', true);
     } finally {
@@ -68,18 +81,19 @@
     if (busy) return;
     if (key === 'del') {
       pin = pin.slice(0, -1);
-    } else if (pin.length < PIN_LENGTH) {
+    } else if (pin.length < pinLength()) {
       if (pin.length === 0) hint('Enter your PIN');
       pin += key;
     }
     paintDots();
-    if (pin.length === PIN_LENGTH) submit();
+    if (pin.length === pinLength()) submit();
   }
 
   function lock() {
     cards = null;
     current = null;
     pin = '';
+    heldPin = '';
     $('grid').replaceChildren();
     $('code').replaceChildren();
     $('pass-name').textContent = '';
@@ -88,6 +102,43 @@
     paintDots();
     hint('Enter your PIN');
     show('lock');
+  }
+
+  // ---------- staying up to date ----------
+
+  // The app can sit open in the background for days, and browsers reuse files
+  // they already hold. So ask the server directly whether the card list changed:
+  // when the app starts, and each time it comes back into view.
+  function refreshVault() {
+    refreshing = fetch('vault.js', { cache: 'no-cache' })
+      .then((response) => (response.ok ? response.text() : Promise.reject(new Error('unavailable'))))
+      .then((text) => {
+        const fresh = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
+        if (!fresh.ct || (vault && fresh.ct === vault.ct)) return undefined;
+        vault = fresh;
+        if (busy) return undefined;      // an unlock is under way and will pick this up
+        if (cards) return showNewerCards();
+        paintDots();
+        return undefined;
+      })
+      .catch(() => {});                  // no connection: carry on with the list already here
+    return refreshing;
+  }
+
+  // Already unlocked when a newer list arrived: open it with the PIN in hand.
+  async function showNewerCards() {
+    const used = vault;
+    try {
+      const list = await unlock(heldPin, used);
+      await tagCards(list);
+      if (!cards || vault !== used) return;
+      cards = list;
+      loadRecent();
+      sortCards();
+      if (!current) buildGrid();         // with a card open, the grid is rebuilt on the way back
+    } catch (error) {
+      if (cards && vault === used) lock(); // the PIN was changed: ask for the new one
+    }
   }
 
   // ---------- most recently opened first ----------
@@ -265,8 +316,7 @@
   // ---------- wiring ----------
 
   function start() {
-    const dots = $('dots');
-    for (let i = 0; i < PIN_LENGTH; i++) dots.append(document.createElement('span'));
+    paintDots();
 
     if (!vault || !window.crypto || !crypto.subtle) {
       hint(vault ? 'This browser can’t unlock the cards. Open the site over https.'
@@ -318,8 +368,12 @@
         if (cards && hiddenAt && Date.now() - hiddenAt > AUTO_LOCK_MS) lock();
         else if (current) keepAwake(true);
         hiddenAt = 0;
+        refreshVault();
       }
     });
+
+    window.addEventListener('online', refreshVault);
+    refreshVault();
 
     if ('serviceWorker' in navigator && location.protocol === 'https:') {
       navigator.serviceWorker.register('sw.js').catch(() => {});

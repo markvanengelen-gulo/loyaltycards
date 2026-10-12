@@ -1,7 +1,8 @@
 // Keeps a copy of the site on the phone so the cards still open with no signal.
-// Fresh files are used whenever the network answers; the saved copy is the fallback.
+// Every open asks the server whether a file has changed, so new cards show up
+// straight away; the saved copy is the fallback when there is no connection.
 
-const CACHE = 'loyaltycards-v1';
+const CACHE = 'loyaltycards-v2';
 const FILES = [
   './',
   'index.html',
@@ -32,7 +33,7 @@ self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (request.method !== 'GET' || new URL(request.url).origin !== self.location.origin) return;
   event.respondWith(
-    fetch(request)
+    fetch(request, { cache: 'no-cache' })
       .then((response) => {
         if (response.ok) {
           const copy = response.clone();
